@@ -49,6 +49,23 @@ export const RevenueSummary: React.FC<RevenueSummaryProps> = ({ propertyId, peri
         return () => { cancelled = true; };
     }, [propertyId, period?.month, period?.year]);
 
+    if (loading) {
+        return (
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                <div className="animate-pulse space-y-4">
+                    <div className="h-4 bg-gray-100 rounded w-1/4"></div>
+                    <div className="h-8 bg-gray-100 rounded w-1/2"></div>
+                    <div className="flex gap-4 pt-4">
+                        <div className="h-12 bg-gray-100 rounded flex-1"></div>
+                        <div className="h-12 bg-gray-100 rounded flex-1"></div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (error) return <div className="p-4 text-red-500 bg-red-50 rounded-lg">{error}</div>;
+
     return (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow duration-300">
             {showRaw && (

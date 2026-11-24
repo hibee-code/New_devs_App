@@ -1,11 +1,8 @@
-import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.new';
 
 export default function RootRedirect() {
-  const auth = useAuth();
-  const { user } = auth;
-  const loading = auth.status === 'initializing';
+  const { user, isLoading: loading } = useAuth();
 
   // Show loading state while checking auth
   if (loading) {
