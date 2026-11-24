@@ -74,7 +74,8 @@ export class SecureAPIClient {
   private interceptDirectQueries() {
     if (import.meta.env.DEV) {
       const ENFORCE = (import.meta.env as any).VITE_ENFORCE_SECURE_API === 'true';
-      const originalFrom = supabase.from;
+      const supabaseClient = supabase as any;
+      const originalFrom = supabaseClient.from;
       // Temporary dev allowlist for legacy direct queries while migrating to SecureAPI
       const DEV_ALLOWLIST = new Set([
         'user_permissions',
@@ -84,7 +85,7 @@ export class SecureAPIClient {
         'landlord_details'
       ]);
 
-      supabase.from = (table: string) => {
+      supabaseClient.from = (table: string) => {
         const stack = new Error().stack || '';
         const violation = `SECURITY VIOLATION: Direct Supabase query to table '${table}'`;
 
@@ -95,7 +96,7 @@ export class SecureAPIClient {
             // Record violation for later review, but don't block
             this.securityViolations.push(violation + ' (allowed in DEV)');
           }
-          return originalFrom.call(supabase, table);
+          return originalFrom.call(supabaseClient, table);
         }
 
         // Strict enforcement in DEV when VITE_ENFORCE_SECURE_API=true
@@ -492,7 +493,9 @@ export class SecureAPIClient {
 
     // Fast path
     const initial = await supabase.auth.getSession();
-    if (initial.data.session?.access_token) return initial.data.session;
+    if (initial.data.session?.access_token) {
+      return initial.data.session as unknown as import('@supabase/supabase-js').Session;
+    }
     const storageToken = getTokenFromStorage();
     if (storageToken) {
       // Construct a minimal session object shape with access_token
@@ -500,17 +503,17 @@ export class SecureAPIClient {
     }
 
     // Listen + poll concurrently
-    let unsubscribe: (() => void) | null = null;
+    const unsubscribe: { current?: () => void } = {};
     let resolved = false;
     const sessionPromise = new Promise<import('@supabase/supabase-js').Session | null>((resolve) => {
       const { data } = supabase.auth.onAuthStateChange((_event, session) => {
         if (!resolved && session?.access_token) {
           resolved = true;
-          if (unsubscribe) unsubscribe();
-          resolve(session);
+          unsubscribe.current?.();
+          resolve(session as unknown as import('@supabase/supabase-js').Session);
         }
       });
-      unsubscribe = () => data.subscription.unsubscribe();
+      unsubscribe.current = () => data.subscription.unsubscribe();
     });
 
     const pollingPromise = new Promise<import('@supabase/supabase-js').Session | null>(async (resolve) => {
@@ -519,7 +522,7 @@ export class SecureAPIClient {
         const token = await nowHasToken();
         if (token) {
           resolved = true;
-          if (unsubscribe) unsubscribe();
+          unsubscribe.current?.();
           resolve({ access_token: token } as any);
           return;
         }
@@ -530,7 +533,7 @@ export class SecureAPIClient {
 
     const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs));
     const result = await Promise.race([sessionPromise, pollingPromise, timeoutPromise]);
-    if (unsubscribe) unsubscribe();
+    unsubscribe.current?.();
     return result;
   }
 
@@ -1448,24 +1451,23 @@ export class SecureAPIClient {
     });
   }
 
-  // ============= DASHBOARD API =============
   /**
-   * Get dashboard summary with optional simulation header
+   * Revenue summary for one of the current tenant's properties.
+   * The tenant always comes from the auth token on the server, never from the client.
    */
-  async getDashboardSummary(propertyId: string, options?: { simulatedTenant?: string, timestamp?: number }) {
+  
+  async getDashboardSummary(propertyId: string, period?: { month: number; year: number }) {
     const queryParams = new URLSearchParams({ property_id: propertyId });
-    if (options?.timestamp) {
-      queryParams.append('_t', options.timestamp.toString());
+    if (period) {
+      queryParams.append('month', String(period.month));
+      queryParams.append('year', String(period.year));
     }
+    return this.request<any>(`/api/v1/dashboard/summary?${queryParams}`);
+  }
 
-    const requestOptions: RequestInit = {};
-    if (options?.simulatedTenant) {
-      requestOptions.headers = {
-        'X-Simulated-Tenant': options.simulatedTenant
-      };
-    }
-
-    return this.request<any>(`/api/v1/dashboard/summary?${queryParams}`, requestOptions);
+  /** Properties belonging to the current tenant. */
+  async getDashboardProperties() {
+    return this.request<Array<{ id: string; name: string; timezone: string }>>('/api/v1/dashboard/properties');
   }
 
   async uploadCompanyLogo(logo_url: string) {
